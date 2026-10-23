@@ -1,0 +1,32 @@
+import { Link } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faMinus, faPlus, faTrash, faArrowLeft, faLock, faTruckFast } from "@fortawesome/free-solid-svg-icons";
+import { useCart } from "../context/CartContext.jsx";
+import { discountedPrice, money } from "../utils/format.js";
+import { EmptyState } from "../components/common/States.jsx";
+import { useToast } from "../context/ToastContext.jsx";
+import { useState } from "react";
+
+export function calculateTotals(items, shippingMethod = "standard") {
+  const subtotal = items.reduce((sum, item) => sum + discountedPrice(item) * item.quantity, 0);
+  const shipping = subtotal === 0 || subtotal >= 75 || shippingMethod === "pickup" ? 0 : shippingMethod === "express" ? 14.99 : 5.99;
+  const tax = subtotal * 0.08;
+  return { subtotal, shipping, tax, total: subtotal + shipping + tax };
+}
+export default function Cart() {
+  const { items, updateQuantity, removeItem, clearCart } = useCart();
+  const [showClear, setShowClear] = useState(false);
+  const toast = useToast();
+  const totals = calculateTotals(items);
+  if (!items.length) return <div className="container-page py-12 sm:py-16"><EmptyState title="Your cart is taking a little break" description="Add something you love and it will show up here." action={<Link className="btn-primary" to="/products">Shop now</Link>} /></div>;
+  return <div className="container-page py-8 sm:py-11">
+    <div className="mb-7 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-extrabold uppercase tracking-[.18em] text-brand-600">Your bag, your picks</p><h1 className="section-title mt-1 text-3xl sm:text-4xl">Shopping cart <span className="text-lg font-semibold text-slate-400">({items.reduce((s, i) => s + i.quantity, 0)})</span></h1></div><button onClick={() => setShowClear(true)} className="text-sm font-semibold text-slate-500 hover:text-red-600"><FontAwesomeIcon icon={faTrash} className="mr-2" />Clear cart</button></div>
+    <div className="grid items-start gap-6 lg:grid-cols-[1fr_350px]">
+      <div className="space-y-3">{items.map((item) => <article key={item.id} className="surface flex gap-3 p-3 sm:gap-5 sm:p-5"><Link to={`/product/${item.id}`} className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl bg-slate-50 p-2 sm:h-32 sm:w-32"><img src={item.thumbnail} alt={item.title} className="h-full w-full object-contain" /></Link><div className="flex min-w-0 flex-1 flex-col"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><Link to={`/product/${item.id}`} className="line-clamp-2 text-sm font-extrabold leading-5 hover:text-brand-600 sm:text-base">{item.title}</Link><p className="mt-1 text-xs capitalize text-slate-500">{item.category?.replaceAll("-", " ")}</p><p className="mt-2 text-sm font-bold">{money(discountedPrice(item))}<span className="ml-1 text-xs font-normal text-slate-400">/ item</span></p></div><button aria-label={`Remove ${item.title}`} onClick={() => removeItem(item.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-500"><FontAwesomeIcon icon={faTrash} /></button></div><div className="mt-auto flex flex-wrap items-end justify-between gap-3 pt-3"><div className="flex items-center rounded-lg border border-slate-200"><button aria-label="Decrease quantity" disabled={item.quantity <= 1} onClick={() => updateQuantity(item.id, item.quantity - 1)} className="h-8 w-8 text-slate-600 disabled:opacity-30"><FontAwesomeIcon icon={faMinus} size="xs" /></button><span className="w-7 text-center text-xs font-bold">{item.quantity}</span><button aria-label="Increase quantity" disabled={item.quantity >= item.stock} onClick={() => { if (item.quantity >= item.stock) toast("Available stock limit reached.", "info"); else updateQuantity(item.id, item.quantity + 1); }} className="h-8 w-8 text-slate-600 disabled:opacity-30"><FontAwesomeIcon icon={faPlus} size="xs" /></button></div><p className="text-sm font-extrabold">{money(discountedPrice(item) * item.quantity)}</p></div></div></article>)}
+        <Link to="/products" className="inline-flex items-center gap-2 py-2 text-sm font-bold text-brand-600 hover:text-brand-800"><FontAwesomeIcon icon={faArrowLeft} /> Continue shopping</Link>
+      </div>
+      <aside className="surface p-5 sm:p-6 lg:sticky lg:top-36"><h2 className="text-lg font-extrabold">Order summary</h2><div className="mt-5 space-y-3 text-sm"><div className="flex justify-between text-slate-600"><span>Subtotal</span><span className="font-semibold text-slate-900">{money(totals.subtotal)}</span></div><div className="flex justify-between text-slate-600"><span>Shipping</span><span className={totals.shipping === 0 ? "font-bold text-emerald-600" : "font-semibold text-slate-900"}>{totals.shipping === 0 ? "Free" : money(totals.shipping)}</span></div><div className="flex justify-between text-slate-600"><span>Estimated tax (8%)</span><span className="font-semibold text-slate-900">{money(totals.tax)}</span></div><div className="border-t border-dashed border-slate-200 pt-4"><div className="flex justify-between text-base font-extrabold"><span>Total</span><span>{money(totals.total)}</span></div><p className="mt-1 text-[11px] text-slate-400">USD · Estimates only</p></div></div>{totals.shipping > 0 && <p className="mt-4 rounded-xl bg-blue-50 p-3 text-xs leading-5 text-brand-700"><FontAwesomeIcon icon={faTruckFast} className="mr-2" />Spend {money(75 - totals.subtotal)} more for free standard shipping.</p>}<Link to="/checkout" className="btn-primary mt-5 w-full">Proceed to checkout <FontAwesomeIcon icon={faLock} /></Link><p className="mt-3 text-center text-[11px] text-slate-400">Demo checkout · no real payment</p></aside>
+    </div>
+    {showClear && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true" aria-labelledby="clear-title"><div className="surface w-full max-w-sm p-6"><h2 id="clear-title" className="text-lg font-extrabold">Clear your cart?</h2><p className="mt-2 text-sm leading-6 text-slate-500">This removes all items from your cart. Your wishlist stays untouched.</p><div className="mt-6 flex justify-end gap-2"><button onClick={() => setShowClear(false)} className="btn-secondary">Keep items</button><button onClick={() => { clearCart(); setShowClear(false); toast("Cart cleared.", "info"); }} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700">Clear cart</button></div></div></div>}
+  </div>;
+}

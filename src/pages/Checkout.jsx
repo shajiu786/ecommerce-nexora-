@@ -1,0 +1,54 @@
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faArrowLeft, faArrowRight, faLock, faTruckFast } from "@fortawesome/free-solid-svg-icons";
+import { useCart } from "../context/CartContext.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { calculateTotals } from "./Cart.jsx";
+import { discountedPrice, money } from "../utils/format.js";
+import { readStorage, writeStorage } from "../utils/storage.js";
+import { useToast } from "../context/ToastContext.jsx";
+
+const initialShipping = (user) => ({ fullName: user?.name || "", phone: "", email: user?.email || "", address: "", city: "", state: "", postalCode: "" });
+const steps = ["Shipping", "Delivery & payment", "Review order"];
+export default function Checkout() {
+  const { items, clearCart } = useCart();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [step, setStep] = useState(0);
+  const [shipping, setShipping] = useState(() => initialShipping(user));
+  const [delivery, setDelivery] = useState("standard");
+  const [payment, setPayment] = useState("cod");
+  const [errors, setErrors] = useState({});
+  const totals = useMemo(() => calculateTotals(items, delivery), [items, delivery]);
+  const update = (e) => setShipping((s) => ({ ...s, [e.target.name]: e.target.value }));
+  const validateShipping = () => {
+    const next = {};
+    for (const key of ["fullName", "phone", "email", "address", "city", "state", "postalCode"]) if (!shipping[key].trim()) next[key] = "This field is required.";
+    if (shipping.phone && !/^[+()\d\s-]{7,20}$/.test(shipping.phone)) next.phone = "Enter a valid phone number.";
+    if (shipping.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(shipping.email)) next.email = "Enter a valid email address.";
+    if (shipping.postalCode && shipping.postalCode.trim().length < 3) next.postalCode = "Enter a valid postal code.";
+    setErrors(next); return Object.keys(next).length === 0;
+  };
+  const nextStep = () => { if (step === 0 && !validateShipping()) return; setErrors({}); setStep((s) => Math.min(2, s + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const placeOrder = () => {
+    if (!items.length) return navigate("/cart");
+    const order = { id: `NX-${Date.now().toString(36).toUpperCase()}`, userId: user.id, userEmail: user.email, createdAt: new Date().toISOString(), status: "Order placed (demo)", items: items.map((item) => ({ ...item })), shipping: { ...shipping }, delivery, payment, totals: { ...totals }, currency: "USD" };
+    const orders = readStorage("nexora_orders", []);
+    if (!writeStorage("nexora_orders", [order, ...orders])) { toast("Could not save this demo order. Check browser storage space.", "error"); return; }
+    clearCart(); navigate(`/order-success/${order.id}`, { state: { order }, replace: true });
+  };
+  if (!items.length) return <div className="container-page py-12 text-center"><div className="surface mx-auto max-w-lg p-8"><h1 className="section-title text-2xl">Your cart is empty</h1><p className="mt-2 text-sm text-slate-500">Add some products before heading to checkout.</p><Link to="/products" className="btn-primary mt-5">Browse products</Link></div></div>;
+
+  const field = (name, label, props = {}) => <div key={name}><label htmlFor={name} className="mb-1.5 block text-sm font-bold">{label}</label><input id={name} name={name} value={shipping[name]} onChange={update} className={`field ${errors[name] ? "border-red-400" : ""}`} {...props} />{errors[name] && <p className="mt-1 text-xs text-red-600">{errors[name]}</p>}</div>;
+  return <div className="container-page py-8 sm:py-11"><div className="mb-7"><p className="text-xs font-extrabold uppercase tracking-[.18em] text-brand-600">Almost yours</p><h1 className="section-title mt-1 text-3xl sm:text-4xl">Checkout</h1><p className="mt-2 text-sm text-slate-500">A demo checkout — no payment will be processed.</p></div>
+    <div className="mb-8 grid grid-cols-3 gap-2">{steps.map((label, i) => <div key={label} className={`flex items-center gap-2 border-b-2 pb-3 ${step >= i ? "border-brand-600 text-brand-700" : "border-slate-200 text-slate-400"}`}><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-extrabold ${step > i ? "bg-brand-600 text-white" : step === i ? "bg-blue-50 text-brand-700" : "bg-slate-100"}`}>{step > i ? <FontAwesomeIcon icon={faCheck} /> : i + 1}</span><span className="text-[11px] font-bold sm:text-sm">{label}</span></div>)}</div>
+    <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]"><section className="surface p-5 sm:p-7">
+      {step === 0 && <><h2 className="text-lg font-extrabold">Where should we send it?</h2><p className="mt-1 text-sm text-slate-500">Enter your delivery details.</p><form onSubmit={(e) => { e.preventDefault(); nextStep(); }} className="mt-6 grid gap-4 sm:grid-cols-2" noValidate>{field("fullName", "Full name", { autoComplete: "name" })}{field("phone", "Phone number", { type: "tel", autoComplete: "tel" })}{field("email", "Email address", { type: "email", autoComplete: "email" })}<div className="sm:col-span-2">{field("address", "Street address", { autoComplete: "street-address" })}</div>{field("city", "City", { autoComplete: "address-level2" })}{field("state", "State / region", { autoComplete: "address-level1" })}{field("postalCode", "Postal code", { autoComplete: "postal-code" })}<div className="sm:col-span-2"><button className="btn-primary w-full sm:w-auto">Continue to delivery <FontAwesomeIcon icon={faArrowRight} /></button></div></form></>}
+      {step === 1 && <><h2 className="text-lg font-extrabold">Delivery and payment</h2><p className="mt-1 text-sm text-slate-500">Choose how you would like to complete this demo order.</p><h3 className="mb-3 mt-6 text-sm font-extrabold">Delivery method</h3><div className="space-y-3">{[{ id: "standard", name: "Standard delivery", detail: totals.subtotal >= 75 ? "Free on this order" : "$5.99 · Estimated 4–7 days" }, { id: "express", name: "Express delivery", detail: "$14.99 · Estimated 1–3 days" }, { id: "pickup", name: "Store pickup", detail: "Free · Demo option" }].map((opt) => <label key={opt.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${delivery === opt.id ? "border-brand-500 bg-blue-50/50" : "border-slate-200"}`}><input type="radio" name="delivery" value={opt.id} checked={delivery === opt.id} onChange={() => setDelivery(opt.id)} className="mt-1 accent-blue-600" /><span className="flex-1"><b className="block text-sm">{opt.name}</b><small className="mt-1 block text-xs text-slate-500">{opt.detail}</small></span><FontAwesomeIcon icon={faTruckFast} className="text-brand-600" /></label>)}</div><h3 className="mb-3 mt-7 text-sm font-extrabold">Payment method</h3><div className="space-y-3">{[{ id: "cod", name: "Cash on delivery", detail: "Demo selection only" }, { id: "simulated", name: "Simulated online payment", detail: "No card details requested; no payment is made" }].map((opt) => <label key={opt.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${payment === opt.id ? "border-brand-500 bg-blue-50/50" : "border-slate-200"}`}><input type="radio" name="payment" value={opt.id} checked={payment === opt.id} onChange={() => setPayment(opt.id)} className="mt-1 accent-blue-600" /><span><b className="block text-sm">{opt.name}</b><small className="mt-1 block text-xs text-slate-500">{opt.detail}</small></span></label>)}</div><div className="mt-6 flex flex-wrap justify-between gap-3"><button onClick={() => setStep(0)} className="btn-secondary"><FontAwesomeIcon icon={faArrowLeft} /> Back</button><button onClick={nextStep} className="btn-primary">Review order <FontAwesomeIcon icon={faArrowRight} /></button></div></>}
+      {step === 2 && <><h2 className="text-lg font-extrabold">Review your order</h2><p className="mt-1 text-sm text-slate-500">Make sure everything looks right before placing your demo order.</p><div className="mt-5 rounded-xl bg-slate-50 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-extrabold">{shipping.fullName}</p><p className="mt-1 text-xs leading-5 text-slate-600">{shipping.address}, {shipping.city}, {shipping.state} {shipping.postalCode}</p><p className="mt-1 text-xs text-slate-600">{shipping.phone} · {shipping.email}</p></div><button onClick={() => setStep(0)} className="text-xs font-bold text-brand-600">Edit</button></div><div className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-600"><p>Delivery: <b className="capitalize text-slate-800">{delivery}</b></p><p className="mt-1">Payment: <b className="text-slate-800">{payment === "cod" ? "Cash on delivery (demo)" : "Simulated online payment"}</b></p></div></div><div className="mt-5 space-y-3">{items.map((item) => <div key={item.id} className="flex items-center gap-3"><img src={item.thumbnail} alt="" className="h-14 w-14 rounded-lg bg-slate-50 object-contain p-1" /><div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-bold">{item.title}</p><p className="text-xs text-slate-500">Qty {item.quantity}</p></div><b className="shrink-0 text-sm">{money(discountedPrice(item) * item.quantity)}</b></div>)}</div><div className="mt-6 flex flex-wrap justify-between gap-3"><button onClick={() => setStep(1)} className="btn-secondary"><FontAwesomeIcon icon={faArrowLeft} /> Back</button><button onClick={placeOrder} className="btn-primary">Place demo order <FontAwesomeIcon icon={faCheck} /></button></div></>}
+    </section>
+    <aside className="surface p-5 sm:p-6 lg:sticky lg:top-36"><h2 className="text-lg font-extrabold">Order summary</h2><div className="mt-4 space-y-3 text-sm">{items.map((item) => <div key={item.id} className="flex gap-2"><span className="min-w-0 flex-1 truncate text-slate-600">{item.title} × {item.quantity}</span><span className="font-semibold">{money(discountedPrice(item) * item.quantity)}</span></div>)}<div className="border-t border-slate-200 pt-3"><div className="flex justify-between text-slate-600"><span>Subtotal</span><span>{money(totals.subtotal)}</span></div><div className="mt-2 flex justify-between text-slate-600"><span>Shipping</span><span>{totals.shipping ? money(totals.shipping) : "Free"}</span></div><div className="mt-2 flex justify-between text-slate-600"><span>Estimated tax</span><span>{money(totals.tax)}</span></div><div className="mt-4 flex justify-between border-t border-dashed border-slate-200 pt-4 text-base font-extrabold"><span>Total</span><span>{money(totals.total)}</span></div></div></div><p className="mt-5 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800"><FontAwesomeIcon icon={faLock} className="mr-2" />Demo only. No real payment is taken.</p></aside></div>
+  </div>;
+}
